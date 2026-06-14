@@ -3,7 +3,7 @@ NAME = philo
 CC = cc
 CFLAGS = -Wall -Wextra -Werror -pthread
 
-SRCS = main.c parse.c utils.c log.c init.c sim.c
+SRCS = main.c parse.c utils.c log.c init.c sim.c eat.c monitor.c
 OBJS = $(SRCS:.c=.o)
 
 all: $(NAME)

@@ -1,50 +1,46 @@
-*"This project has been created as part of the 42 curriculum by talkhati."*
+*This project has been created as part of the 42 curriculum by talkhati.*
 
 ## Description
 
-This project implements the classic Dining Philosophers concurrency problem (phil.42).
-It simulates philosophers who repeatedly take forks, eat, sleep, and think, while a
-monitor detects starvation and stops the simulation when a philosopher dies (or when
-all philosophers have eaten a required number of times, if provided).
+This project implements the mandatory part of the Philosophers assignment (philosophers
+with threads and mutexes). Each philosopher runs in its own thread, each fork is
+protected by a mutex, and a monitor thread detects starvation.
 
-Mandatory part (`philo/`) uses POSIX threads and mutexes:
-
-- One philosopher = one thread
-- One fork = one mutex
-- Output is serialized (no overlapping messages)
-- No global variables are used
+The simulation stops when a philosopher dies, or when every philosopher has eaten the
+required number of times if the optional fifth argument is provided.
 
 ## Instructions
 
-### Compile
+### Compilation
 
-From the project root:
+```bash
+cd philo
+make
+```
 
-`make -C philo`
+Required Makefile rules: `all`, `clean`, `fclean`, and `re`.
 
-This builds `philo/philo`.
+### Execution
 
-### Run
-
-`./philo/philo number_of_philosophers time_to_die time_to_eat time_to_sleep [number_of_times_each_philosopher_must_eat]`
+```bash
+./philo number_of_philosophers time_to_die time_to_eat time_to_sleep [number_of_times_each_philosopher_must_eat]
+```
 
 Example:
 
-`./philo/philo 5 800 200 200`
+```bash
+./philo 5 800 200 200
+./philo 5 800 200 200 7
+```
 
 ## Resources
 
-- Dining Philosophers: [https://en.wikipedia.org/wiki/Dining_philosophers_problem](https://en.wikipedia.org/wiki/Dining_philosophers_problem)
-- POSIX Threads (pthreads): [https://man7.org/linux/man-pages/man7/pthreads.7.html](https://man7.org/linux/man-pages/man7/pthreads.7.html)
-- Mutexes: `pthread_mutex_init`, `pthread_mutex_lock`, `pthread_mutex_unlock`
+- [Dining philosophers problem (Wikipedia)](https://en.wikipedia.org/wiki/Dining_philosophers_problem)
+- [POSIX threads (man7.org)](https://man7.org/linux/man-pages/man7/pthreads.7.html)
+- [pthread_mutex_init (man7.org)](https://man7.org/linux/man-pages/man3/pthread_mutex_init.3.html)
 
-### AI usage (disclosure)
+### AI usage
 
-AI assistance was used to:
-
-- Outline a minimal architecture for `t_data` / `t_philo` without globals
-- Draft thread routines and a monitor loop for death detection
-- Draft a Makefile skeleton
-
-All code was then reviewed and adjusted to respect the project's allowed functions
-and output/timing constraints.
+AI was used to outline the initial architecture (`t_data` / `t_philo`), draft the monitor
+loop, and draft the Makefile skeleton. All generated code was reviewed, tested, and
+adjusted to match the subject constraints.

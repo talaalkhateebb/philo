@@ -1,5 +1,46 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   sim.c                                              :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: talkhati <talkhati@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2026/06/09 12:00:00 by talkhati         #+#    #+#             */
+/*   Updated: 2026/06/09 12:00:00 by talkhati         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "philo.h"
 
+/*
+** sim.c
+** -----
+** The per-philosopher thread routine and the top-level start_simulation
+** that spawns + joins everything. The actual eating logic lives in
+** eat.c; the watcher lives in monitor.c.
+**
+** بالعربي:
+** روتين الثريد لكل فيلسوف بالإضافة إلى start_simulation التي تُنشئ
+** كل الثريدات وتنتظر انتهاءها. منطق الأكل الفعلي في eat.c، وثريد
+** المراقب في monitor.c.
+*/
+
+/*
+** single_philo_routine
+** --------------------
+** Special-case for philo_count == 1. With only one fork on the table,
+** the philosopher can never grab two -- the subject expects them to
+** pick up the single fork, fail to eat, and die after time_to_die.
+** We log "has taken a fork", busy-wait until the monitor sets stop,
+** then release the fork so cleanup can destroy the mutex cleanly.
+**
+** بالعربي:
+** حالة خاصة عندما يكون philo_count == 1. بشوكة واحدة فقط على الطاولة
+** لا يستطيع الفيلسوف الإمساك باثنتين، والـ subject يتوقع أن يلتقط
+** الشوكة الوحيدة، يفشل في الأكل، ثم يموت بعد time_to_die.
+** نطبع "has taken a fork"، ثم ننتظر بشكل نشط حتى يضع المراقب stop،
+** ثم نحرّر الشوكة لتقدر دالة التنظيف على تدمير الميوتكس بسلام.
+*/
 static void	single_philo_routine(t_philo *philo)
 {
 	pthread_mutex_lock(philo->left_fork);
@@ -9,33 +50,68 @@ static void	single_philo_routine(t_philo *philo)
 	pthread_mutex_unlock(philo->left_fork);
 }
 
-static void	eat(t_philo *philo)
+/*
+** think_pause_ms
+** --------------
+** Computes an extra "thinking" delay inserted between sleep and the
+** next attempt to eat. Rationale: when time_to_die is much larger than
+** time_to_eat + time_to_sleep, philos race back to the forks the moment
+** they wake up, starving the neighbour that's still waiting. Adding a
+** half-of-the-slack pause spreads fork usage and keeps everyone fed.
+** Capped at 200 ms so we never sleep past a realistic eat cycle.
+**
+** بالعربي:
+** تحسب تأخيراً إضافياً للـ "تفكير" يُدخَل بين النوم ومحاولة الأكل
+** التالية. السبب: عندما يكون time_to_die أكبر بكثير من
+** time_to_eat + time_to_sleep، يتسابق الفلاسفة على الشوك فور
+** استيقاظهم فيُجوّعون الجار الذي ما زال ينتظر. إضافة فترة بنصف
+** الفائض توزّع استخدام الشوك ويُبقي الجميع شبعاناً.
+** نحدّ القيمة عند 200 ملي لئلا نتجاوز دورة أكل واقعية.
+*/
+static long	think_pause_ms(t_data *data)
 {
-	pthread_mutex_lock(philo->left_fork);
-	log_state(philo, "has taken a fork");
-	pthread_mutex_lock(philo->right_fork);
-	log_state(philo, "has taken a fork");
-	pthread_mutex_lock(&philo->meal_lock);
-	philo->last_meal_ms = get_time_ms();
-	pthread_mutex_unlock(&philo->meal_lock);
-	log_state(philo, "is eating");
-	precise_sleep(philo->data, philo->data->time_to_eat);
-	pthread_mutex_lock(&philo->meal_lock);
-	philo->meals_eaten++;
-	pthread_mutex_unlock(&philo->meal_lock);
-	pthread_mutex_unlock(philo->right_fork);
-	pthread_mutex_unlock(philo->left_fork);
+	long	pause;
+
+	pause = data->time_to_die - data->time_to_eat - data->time_to_sleep;
+	if (pause < 0)
+		pause = 0;
+	pause /= 2;
+	if (pause > 200)
+		pause = 200;
+	return (pause);
 }
 
+/*
+** philo_routine
+** -------------
+** Thread entry for each philosopher.
+**   1. If only one philo exists, hand off to the special case.
+**   2. Even-id philosophers wait `time_to_eat` ms before starting. This
+**      stagger lets the odd-id philos grab their forks first, halving
+**      the contention so neighbours don't deadlock-loop on each other.
+**   3. Main loop: eat -> sleep -> think (-> optional pause), checking
+**      the stop flag between every phase so we can exit promptly.
+**
+** بالعربي:
+** نقطة دخول الثريد لكل فيلسوف.
+**   1. إذا كان هناك فيلسوف واحد فقط، نسلّم الأمر إلى الحالة الخاصة.
+**   2. الفلاسفة بأرقام زوجية ينتظرون `time_to_eat` ملي قبل البدء.
+**      هذا التأخير يسمح للفلاسفة الفرديين بمسك شوكهم أولاً، فيقلّ
+**      التنافس وتزول حلقة الـ deadlock بين الجيران.
+**   3. الحلقة الرئيسية: أكل -> نوم -> تفكير (-> توقف اختياري)،
+**      ونفحص علم التوقف بين كل مرحلة لنخرج بسرعة عند الحاجة.
+*/
 static void	*philo_routine(void *arg)
 {
 	t_philo	*philo;
+	long	pause;
 
 	philo = (t_philo *)arg;
 	if (philo->data->philo_count == 1)
 		return (single_philo_routine(philo), NULL);
+	pause = think_pause_ms(philo->data);
 	if (philo->id % 2 == 0)
-		usleep(500);
+		usleep(philo->data->time_to_eat * 1000);
 	while (!get_stop(philo->data))
 	{
 		eat(philo);
@@ -46,66 +122,33 @@ static void	*philo_routine(void *arg)
 		if (get_stop(philo->data))
 			break ;
 		log_state(philo, "is thinking");
+		if (pause > 0)
+			precise_sleep(philo->data, pause);
 	}
 	return (NULL);
 }
 
-static int	check_all_full(t_data *data)
-{
-	int	i;
-	int	full;
-
-	if (data->must_eat_count < 0)
-		return (0);
-	i = 0;
-	full = 0;
-	while (i < data->philo_count)
-	{
-		pthread_mutex_lock(&data->philos[i].meal_lock);
-		if (data->philos[i].meals_eaten >= data->must_eat_count)
-			full++;
-		pthread_mutex_unlock(&data->philos[i].meal_lock);
-		i++;
-	}
-	return (full == data->philo_count);
-}
-
-static void	*monitor_routine(void *arg)
-{
-	t_data	*data;
-	int		i;
-	long	now;
-	long	last_meal;
-
-	data = (t_data *)arg;
-	while (!get_stop(data))
-	{
-		i = 0;
-		while (i < data->philo_count && !get_stop(data))
-		{
-			pthread_mutex_lock(&data->philos[i].meal_lock);
-			last_meal = data->philos[i].last_meal_ms;
-			pthread_mutex_unlock(&data->philos[i].meal_lock);
-			now = get_time_ms();
-			if (now - last_meal >= data->time_to_die)
-			{
-				pthread_mutex_lock(&data->print_lock);
-				pthread_mutex_lock(&data->stop_lock);
-				data->stop = 1;
-				printf("%ld %d died\n", elapsed_ms(data), data->philos[i].id);
-				pthread_mutex_unlock(&data->stop_lock);
-				pthread_mutex_unlock(&data->print_lock);
-				return (NULL);
-			}
-			i++;
-		}
-		if (check_all_full(data))
-			return (set_stop(data, 1), NULL);
-		usleep(200);
-	}
-	return (NULL);
-}
-
+/*
+** start_simulation
+** ----------------
+** Top-level orchestrator:
+**   1. Record start_ms and seed each philo's last_meal_ms = start_ms so
+**      the monitor measures starvation from t = 0.
+**   2. Spawn one thread per philo running philo_routine.
+**   3. Spawn the monitor thread.
+**   4. Wait for the monitor to return (death or all-fed), then join
+**      every philo thread so we have no detached workers at cleanup.
+**
+** بالعربي:
+** المنسّق الرئيسي:
+**   1. تسجيل start_ms وضبط last_meal_ms = start_ms لكل فيلسوف حتى
+**      يقيس المراقب الجوع منذ اللحظة 0.
+**   2. إنشاء ثريد لكل فيلسوف يعمل بـ philo_routine.
+**   3. إنشاء ثريد المراقب.
+**   4. انتظار عودة المراقب (إما لوفاة أو لاكتمال الوجبات)، ثم
+**      انتظار كل ثريدات الفلاسفة (join) حتى لا يبقى ثريد طليق
+**      عند التنظيف.
+*/
 int	start_simulation(t_data *data)
 {
 	int	i;
